@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="te">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="తెలుగు పఠనం">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>తెలుగు పఠనం</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Telugu:wght@400;600&family=Noto+Sans+Telugu:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f2f5f3;--card:#fff;--ink:#16302e;--mute:#5b706d;--line:#d3dedb;--acc:#0f5e5b;--accink:#fff;color-scheme:light}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1716;--card:#16221f;--ink:#e6f0ee;--mute:#93aaa6;--line:#26363a;--acc:#4fc3bb;--accink:#06201e;color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 "Noto Sans Telugu",-apple-system,system-ui,sans-serif;padding:env(safe-area-inset-top) 16px calc(env(safe-area-inset-bottom) + 24px);max-width:640px;margin:0 auto}
+h1{font:600 26px/1.3 "Noto Serif Telugu",serif;margin:20px 0 4px}
+p.sub{margin:0 0 16px;color:var(--mute);font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
+label{display:block;font-size:13px;color:var(--mute);margin:10px 0 4px}
+input,select,textarea{width:100%;font:inherit;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:10px;padding:10px}
+textarea{min-height:240px;font:400 20px/1.9 "Noto Serif Telugu",serif;resize:vertical}
+button{font:600 16px inherit;font-family:inherit;border:0;border-radius:12px;padding:13px 16px;background:var(--acc);color:var(--accink);min-height:48px}
+button.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button:disabled{opacity:.5}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1}
+details summary{font-weight:600;min-height:32px}
+#status{font-size:14px;color:var(--mute);min-height:22px;margin:6px 0}
+#thumbs{display:flex;gap:8px;overflow-x:auto;margin-top:10px}
+#thumbs img{height:64px;border-radius:8px;border:1px solid var(--line)}
+input[type=file]{display:none}
+</style>
+</head>
+<body>
+<h1>తెలుగు పఠనం</h1>
+<p class="sub">Photograph a book page. Hear it read in Telugu.</p>
+
+<details class="card" id="settings">
+<summary>Settings and API keys</summary>
+<label for="gkey">Google Cloud Vision API key (reads the photo)</label>
+<input id="gkey" type="password" autocomplete="off" placeholder="AIza...">
+<label for="akey">Azure Speech key (the voice)</label>
+<input id="akey" type="password" autocomplete="off">
+<label for="aregion">Azure region</label>
+<input id="aregion" placeholder="centralindia" value="centralindia">
+<label for="voice">Voice</label>
+<select id="voice">
+<option value="te-IN-ShrutiNeural">శ్రుతి (female)</option>
+<option value="te-IN-MohanNeural">మోహన్ (male)</option>
+</select>
+<label for="rate">Speed: <span id="rv">0.9</span>×</label>
+<input id="rate" type="range" min="0.6" max="1.3" step="0.05" value="0.9">
+<p class="sub" style="margin-top:10px">Keys are stored only on this phone.</p>
+</details>
+
+<div class="card">
+<div class="row">
+<button id="cam" type="button">Take photo</button>
+<button id="pick" type="button" class="alt">Choose photos</button>
+</div>
+<input id="fcam" type="file" accept="image/*" capture="environment">
+<input id="fpick" type="file" accept="image/*" multiple>
+<div id="thumbs"></div>
+<div id="status" role="status"></div>
+<button id="scan" type="button" style="width:100%" disabled>Scan text</button>
+</div>
+
+<div class="card">
+<label for="txt" style="margin-top:0">Text (fix any mistakes before reading)</label>
+<textarea id="txt" lang="te" placeholder="ఇక్కడ పాఠ్యం కనిపిస్తుంది"></textarea>
+<div class="row" style="margin-top:12px">
+<button id="play" type="button">Read aloud</button>
+<button id="pause" type="button" class="alt" disabled>Pause</button>
+<button id="stop" type="button" class="alt" disabled>Stop</button>
+</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const store = {
+  get(k){ try { return localStorage.getItem(k) } catch(e){ return null } },
+  set(k,v){ try { localStorage.setItem(k,v) } catch(e){} }
+};
+["gkey","akey","aregion","voice","rate"].forEach(k=>{
+  const v = store.get("tr_"+k); if(v) $(k).value = v;
+  $(k).addEventListener("input",()=>{ store.set("tr_"+k,$(k).value); if(k==="rate") $("rv").textContent=$(k).value; });
+});
+$("rv").textContent = $("rate").value;
+if(!$("gkey").value || !$("akey").value) $("settings").open = true;
+
+const status = t => $("status").textContent = t;
+let files = [];
+
+$("cam").onclick = () => $("fcam").click();
+$("pick").onclick = () => $("fpick").click();
+function addFiles(list){
+  files = files.concat([...list]);
+  $("thumbs").innerHTML = "";
+  files.forEach(f=>{ const i=new Image(); i.src=URL.createObjectURL(f); $("thumbs").appendChild(i); });
+  $("scan").disabled = !files.length;
+  status(files.length + " photo(s) ready");
+}
+$("fcam").onchange = e => { addFiles(e.target.files); e.target.value=""; };
+$("fpick").onchange = e => { addFiles(e.target.files); e.target.value=""; };
+
+function toBase64(file){
+  return new Promise((res,rej)=>{
+    const img = new Image();
+    img.onload = () => {
+      const max = 2200, s = Math.min(1, max/Math.max(img.width,img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width*s); c.height = Math.round(img.height*s);
+      c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+      res(c.toDataURL("image/jpeg",0.9).split(",")[1]);
+    };
+    img.onerror = () => rej(new Error("Could not open photo"));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+$("scan").onclick = async () => {
+  const key = $("gkey").value.trim();
+  if(!key){ $("settings").open = true; status("Add your Google Vision key in Settings."); return; }
+  $("scan").disabled = true;
+  let out = [];
+  try{
+    for(let i=0;i<files.length;i++){
+      status("Reading page " + (i+1) + " of " + files.length + "…");
+      const content = await toBase64(files[i]);
+      const r = await fetch("https://vision.googleapis.com/v1/images:annotate?key="+encodeURIComponent(key),{
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({requests:[{image:{content},features:[{type:"DOCUMENT_TEXT_DETECTION"}],imageContext:{languageHints:["te"]}}]})
+      });
+      const j = await r.json();
+      if(!r.ok || j.responses?.[0]?.error) throw new Error(j.error?.message || j.responses[0].error.message);
+      out.push(j.responses[0].fullTextAnnotation?.text || "");
+    }
+    $("txt").value = ($("txt").value ? $("txt").value + "\n\n" : "") + out.join("\n\n");
+    files = []; $("thumbs").innerHTML = "";
+    status("Done. Check the text, then tap Read aloud.");
+  }catch(e){
+    status("Scan failed: " + e.message);
+    $("scan").disabled = false; return;
+  }
+  $("scan").disabled = true;
+};
+
+/* ---------- Speech ---------- */
+const audio = new Audio();
+let session = 0, playing = false;
+
+function chunk(text){
+  const parts = text.replace(/\r/g,"").split(/(?<=[.!?।\n])\s*/).map(s=>s.trim()).filter(Boolean);
+  const out = []; let cur = "";
+  for(const p of parts){
+    if((cur+" "+p).length > 350 && cur){ out.push(cur); cur = p; } else cur = cur ? cur+" "+p : p;
+  }
+  if(cur) out.push(cur);
+  return out;
+}
+const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+async function synth(text){
+  const region = $("aregion").value.trim() || "centralindia";
+  const pct = Math.round(($("rate").value - 1) * 100);
+  const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="te-IN"><voice name="${$("voice").value}"><prosody rate="${pct>=0?"+":""}${pct}%">${esc(text)}</prosody></voice></speak>`;
+  const r = await fetch(`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`,{
+    method:"POST",
+    headers:{"Ocp-Apim-Subscription-Key":$("akey").value.trim(),"Content-Type":"application/ssml+xml","X-Microsoft-OutputFormat":"audio-24khz-96kbitrate-mono-mp3"},
+    body:ssml
+  });
+  if(!r.ok) throw new Error("Voice service error " + r.status + ". Check key and region.");
+  return URL.createObjectURL(await r.blob());
+}
+
+function setBtns(on){ $("play").disabled = on; $("pause").disabled = !on; $("stop").disabled = !on; }
+
+$("play").onclick = async () => {
+  const text = $("txt").value.trim();
+  if(!text) return status("Nothing to read yet.");
+  if(!$("akey").value.trim()){ $("settings").open = true; return status("Add your Azure Speech key in Settings."); }
+  const my = ++session; setBtns(true);
+  const parts = chunk(text);
+  let next = synth(parts[0]);
+  try{
+    for(let i=0;i<parts.length;i++){
+      if(my !== session) return;
+      status("Reading " + (i+1) + " of " + parts.length);
+      const url = await next;
+      if(i+1 < parts.length) next = synth(parts[i+1]);
+      audio.src = url;
+      await new Promise((res,rej)=>{
+        audio.onended = res; audio.onerror = () => rej(new Error("Playback failed"));
+        audio.play().catch(rej);
+      });
+      URL.revokeObjectURL(url);
+    }
+    if(my === session) status("Finished.");
+  }catch(e){ if(my === session) status(e.message); }
+  if(my === session) setBtns(false);
+};
+$("pause").onclick = () => {
+  if(audio.paused){ audio.play(); $("pause").textContent = "Pause"; }
+  else { audio.pause(); $("pause").textContent = "Resume"; }
+};
+$("stop").onclick = () => {
+  session++; audio.pause(); audio.removeAttribute("src");
+  $("pause").textContent = "Pause"; setBtns(false); status("Stopped.");
+};
+</script>
+</body>
+</html>
